@@ -1,3 +1,17 @@
+# Константы
+DEFAULT_CURRENCY = "USD"
+TAX_RATE = 0.21
+COUPON_SAVE10 = "SAVE10"
+COUPON_SAVE20 = "SAVE20"
+COUPON_VIP = "VIP"
+SAVE10_DISCOUNT_RATE = 0.10
+SAVE20_DISCOUNT_RATE = 0.20
+SAVE20_SMALL_ORDER_RATE = 0.05
+SAVE20_TRIGGER = 200
+VIP_DISCOUNT_LARGE = 50
+VIP_DISCOUNT_SMALL = 10
+VIP_TRIGGER = 100
+
 def parse_request(request: dict):
     user_id = request.get("user_id")
     items = request.get("items")
@@ -6,18 +20,14 @@ def parse_request(request: dict):
     return user_id, items, coupon, currency
 
 
-def process_checkout(request: dict) -> dict:
-    user_id, items, coupon, currency = parse_request(request)
-
+def validate_request(user_id, items: list, currency):
     if user_id is None:
         raise ValueError("user_id is required")
     if items is None:
         raise ValueError("items is required")
     if currency is None:
-        currency = "USD"
+        currency = DEFAULT_CURRENCY
 
-    if type(items) is not list:
-        raise ValueError("items must be a list")
     if len(items) == 0:
         raise ValueError("items must not be empty")
 
@@ -28,34 +38,58 @@ def process_checkout(request: dict) -> dict:
             raise ValueError("price must be positive")
         if it["qty"] <= 0:
             raise ValueError("qty must be positive")
+    
+    return currency
 
+
+def calculate_subtotal(items):
     subtotal = 0
     for it in items:
         subtotal = subtotal + it["price"] * it["qty"]
+    return subtotal
 
+
+def calculate_discount(coupon, subtotal):
     discount = 0
     if coupon is None or coupon == "":
         discount = 0
     elif coupon == "SAVE10":
-        discount = int(subtotal * 0.10)
+        discount = int(subtotal * SAVE10_DISCOUNT_RATE)
     elif coupon == "SAVE20":
-        if subtotal >= 200:
-            discount = int(subtotal * 0.20)
+        if subtotal >= SAVE20_TRIGGER:
+            discount = int(subtotal * SAVE20_DISCOUNT_RATE)
         else:
-            discount = int(subtotal * 0.05)
+            discount = int(subtotal * SAVE20_SMALL_ORDER_RATE)
     elif coupon == "VIP":
-        discount = 50
-        if subtotal < 100:
-            discount = 10
+        discount = VIP_DISCOUNT_LARGE
+        if subtotal < VIP_TRIGGER:
+            discount = VIP_DISCOUNT_SMALL
     else:
         raise ValueError("unknown coupon")
+    
+    return discount
 
-    total_after_discount = subtotal - discount
-    if total_after_discount < 0:
-        total_after_discount = 0
 
-    tax = int(total_after_discount * 0.21)
-    total = total_after_discount + tax
+def calculate_tax(amount):
+    return int(amount * TAX_RATE)
+
+
+def process_checkout(request: dict) -> dict:
+    user_id, items, coupon, currency = parse_request(request)
+    
+    currency = validate_request(user_id, items, currency)
+
+    subtotal = calculate_subtotal(items)
+
+    discount = calculate_discount(coupon, subtotal)
+
+    total = subtotal - discount
+    if total < 0:
+        total = 0
+
+    tax = calculate_tax(total)
+
+    total += tax
 
     order_id = str(user_id) + "-" + str(len(items)) + "-" + "X"
 
